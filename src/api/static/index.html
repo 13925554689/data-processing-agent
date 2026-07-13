@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据处理智能体 — DAP</title>
+<style>
+:root {
+  --primary: #1677ff;
+  --primary-light: #e6f4ff;
+  --success: #52c41a;
+  --warning: #faad14;
+  --danger: #ff4d4f;
+  --bg: #f5f5f5;
+  --card-bg: #fff;
+  --border: #e8e8e8;
+  --text: #262626;
+  --text-secondary: #8c8c8c;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; height: 100vh; display: flex; flex-direction: column; }
+
+/* Header */
+.header { background: #001529; color: #fff; padding: 0 24px; height: 56px; display: flex; align-items: center; gap: 32px; flex-shrink: 0; }
+.header .logo { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+.header .logo span { color: var(--primary); }
+.nav { display: flex; gap: 4px; }
+.nav-btn { color: rgba(255,255,255,0.65); padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: all 0.2s; border: none; background: none; font-size: 14px; }
+.nav-btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+.nav-btn.active { color: #fff; background: var(--primary); }
+
+/* Main */
+.main { flex: 1; overflow: auto; padding: 20px 24px; }
+.page { display: none; }
+.page.active { display: block; }
+
+/* Cards */
+.card { background: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 16px; }
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.stat-card { background: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 20px; }
+.stat-card .label { color: var(--text-secondary); font-size: 13px; margin-bottom: 8px; }
+.stat-card .value { font-size: 28px; font-weight: 700; }
+.stat-card .sub { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+.stat-card.primary .value { color: var(--primary); }
+.stat-card.success .value { color: var(--success); }
+.stat-card.warning .value { color: var(--warning); }
+
+/* Status dots */
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.online { background: var(--success); }
+.status-dot.offline { background: var(--danger); }
+.status-dot.idle { background: var(--warning); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { background: #fafafa; font-weight: 600; white-space: nowrap; }
+tr:hover td { background: var(--primary-light); }
+
+/* Steps */
+.steps { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+.step { flex: 1; min-width: 100px; padding: 12px 8px; text-align: center; border-radius: var(--radius); border: 2px solid var(--border); cursor: pointer; transition: all 0.2s; font-size: 13px; }
+.step .num { font-size: 20px; font-weight: 700; display: block; margin-bottom: 4px; }
+.step.active { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+.step.done { border-color: var(--success); background: #f6ffed; }
+.step.done .num { color: var(--success); }
+.step.disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Buttons */
+.btn { padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-size: 14px; transition: all 0.2s; background: #fff; }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn-primary:hover { background: #4096ff; }
+.btn-success { background: var(--success); border-color: var(--success); color: #fff; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+.btn-group { display: flex; gap: 8px; margin-top: 16px; }
+
+/* Forms */
+.form-row { display: flex; gap: 16px; margin-bottom: 16px; align-items: flex-end; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.form-group label { font-size: 13px; color: var(--text-secondary); }
+.form-group input, .form-group select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+
+/* Tags */
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.tag-blue { background: var(--primary-light); color: var(--primary); }
+.tag-green { background: #f6ffed; color: var(--success); }
+.tag-red { background: #fff2f0; color: var(--danger); }
+.tag-yellow { background: #fffbe6; color: #d48806; }
+
+/* Log */
+.log-area { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 6px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; max-height: 200px; overflow-y: auto; line-height: 1.6; }
+.log-area .time { color: #6a9955; }
+.log-area .info { color: #9cdcfe; }
+.log-area .success { color: #4ec9b0; }
+.log-area .error { color: #f44747; }
+
+/* Charts placeholder */
+.chart-placeholder { height: 200px; background: #fafafa; border: 1px dashed var(--border); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
+
+/* Footer */
+.footer { background: #fff; border-top: 1px solid var(--border); padding: 8px 24px; display: flex; gap: 24px; font-size: 12px; color: var(--text-secondary); flex-shrink: 0; }
+
+/* Two column layout */
+.two-col { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
+
+/* Layer tabs */
+.layer-tabs { display: flex; gap: 0; margin-bottom: 16px; }
+.layer-tab { padding: 6px 20px; border: 1px solid var(--border); cursor: pointer; font-size: 13px; background: #fff; }
+.layer-tab:first-child { border-radius: 6px 0 0 6px; }
+.layer-tab:last-child { border-radius: 0 6px 6px 0; }
+.layer-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* Modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: #fff; border-radius: var(--radius); padding: 24px; min-width: 500px; max-width: 80vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 6px 30px rgba(0,0,0,0.15); }
+.modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">📊 <span>DAP</span> 数据处理智能体</div>
+  <div class="nav" id="nav">
+    <button class="nav-btn active" data-page="dashboard">📋 仪表盘</button>
+    <button class="nav-btn" data-page="pipeline">🔧 数据管道</button>
+    <button class="nav-btn" data-page="catalog">📁 数据目录</button>
+    <button class="nav-btn" data-page="quality">✅ 质量监控</button>
+    <button class="nav-btn" data-page="valuation">💰 资产估值</button>
+    <button class="nav-btn" data-page="compliance">⚖️ 合规中心</button>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="main" id="main">
+
+  <!-- ═══════ P1: 仪表盘 ═══════ -->
+  <div class="page active" id="page-dashboard">
+    <div class="card-grid">
+      <div class="stat-card primary"><div class="label">数据源总数</div><div class="value" id="d-sources">—</div><div class="sub">Bronze 层已接入</div></div>
+      <div class="stat-card success"><div class="label">数据表总数</div><div class="value" id="d-tables">—</div><div class="sub">Silver 层已治理</div></div>
+      <div class="stat-card warning"><div class="label">数据集数</div><div class="value" id="d-datasets">—</div><div class="sub">Gold 层分析就绪</div></div>
+      <div class="stat-card"><div class="label">系统状态</div><div class="value" style="font-size:20px"><span class="status-dot online"></span>运行中</div><div class="sub">7 Agent / 17 API</div></div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div class="card">
+          <div class="card-title">🔗 外部系统连接</div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div><span class="status-dot" id="drap-dot"></span> <strong>DRAP 估值引擎</strong><br><small id="drap-status">检查中…</small></div>
+            <div><span class="status-dot" id="reg-dot"></span> <strong>法规智能体</strong><br><small id="reg-status">检查中…</small></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">🤖 Agent 状态</div>
+          <div id="agent-status-list"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="card-title">📊 DCMM 成熟度</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <div style="flex:1;text-align:center;padding:12px;background:#f6ffed;border-radius:6px"><strong>2级</strong><br><small>受管理级</small></div>
+            <div style="flex:1;text-align:center;padding:12px;background:#fffbe6;border-radius:6px;opacity:0.6"><strong>3级</strong><br><small>稳健级</small></div>
+            <div style="flex:1;text-align:center;padding:12px;background:#fff2f0;border-radius:6px;opacity:0.4"><strong>4级</strong><br><small>量化管理级</small></div>
+            <div style="flex:1;text-align:center;padding:12px;background:#f5f5f5;border-radius:6px;opacity:0.3"><strong>5级</strong><br><small>优化级</small></div>
+          </div>
+          <small>目标: DCMM 2.0 九域达标</small>
+        </div>
+        <div class="card">
+          <div class="card-title">⚡ 快速操作</div>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="switchTab('pipeline')">接入新数据</button>
+            <button class="btn" onclick="switchTab('quality')">查看质量报告</button>
+            <button class="btn" onclick="switchTab('valuation')">执行资产估值</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ P2: 数据管道 ═══════ -->
+  <div class="page" id="page-pipeline">
+    <div class="steps" id="pipeline-steps">
+      <div class="step active" data-step="1"><span class="num">①</span>选择数据源</div>
+      <div class="step" data-step="2"><span class="num">②</span>数据探查</div>
+      <div class="step" data-step="3"><span class="num">③</span>数据清洗</div>
+      <div class="step" data-step="4"><span class="num">④</span>数据集成</div>
+      <div class="step" data-step="5"><span class="num">⑤</span>数据治理</div>
+      <div class="step" data-step="6"><span class="num">⑥</span>数据分析</div>
+      <div class="step" data-step="7"><span class="num">⑦</span>资产估值</div>
+    </div>
+
+    <div class="two-col">
+      <div class="card" style="height:fit-content">
+        <div class="card-title">📋 操作面板</div>
+        <div id="pipeline-form">
+          <div class="form-row"><div class="form-group" style="flex:1"><label>数据源路径</label><input type="text" id="p-source" placeholder="D:\data\example.csv"></div></div>
+          <div class="form-row">
+            <div class="form-group"><label>数据源类型</label><select id="p-type"><option value="csv">CSV</option><option value="excel">Excel</option><option value="sqlite">SQLite</option></select></div>
+            <div class="form-group"><label>数据源名称</label><input type="text" id="p-name" placeholder="自动生成"></div>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="runPipeline('ingest')">▶ 开始接入</button>
+            <button class="btn btn-success" onclick="runPipeline('full')" style="display:none" id="btn-full">▶ 全流程执行</button>
+          </div>
+        </div>
+        <div id="pipeline-result" style="margin-top:12px"></div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="card-title">📝 操作日志</div>
+          <div class="log-area" id="pipeline-log">
+            <div><span class="time">[系统]</span> <span class="info">数据管道就绪，请选择数据源开始处理</span></div>
+          </div>
+        </div>
+        <div class="card" id="preview-card" style="display:none">
+          <div class="card-title">👁 数据预览</div>
+          <div class="table-wrap" id="preview-table"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ P3: 数据目录 ═══════ -->
+  <div class="page" id="page-catalog">
+    <div class="layer-tabs">
+      <button class="layer-tab active" onclick="loadCatalog('bronze')" id="tab-bronze">🟤 Bronze 原始层</button>
+      <button class="layer-tab" onclick="loadCatalog('silver')" id="tab-silver">⚪ Silver 清洗层</button>
+      <button class="layer-tab" onclick="loadCatalog('gold')" id="tab-gold">🟡 Gold 聚合层</button>
+    </div>
+    <div class="card">
+      <div class="card-title" id="catalog-title">Bronze — 原始数据落地层（不可变、append-only）</div>
+      <div class="table-wrap" id="catalog-table">
+        <table><thead><tr><th>数据源</th><th>最新分区</th><th>分区数</th><th>大小</th><th>操作</th></tr></thead><tbody id="catalog-body"><tr><td colspan="5" style="text-align:center;color:var(--text-secondary)">加载中…</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ P4: 质量监控 ═══════ -->
+  <div class="page" id="page-quality">
+    <div class="card-grid">
+      <div class="stat-card success"><div class="label">完整性</div><div class="value">96%</div></div>
+      <div class="stat-card primary"><div class="label">准确性</div><div class="value">92%</div></div>
+      <div class="stat-card warning"><div class="label">一致性</div><div class="value">88%</div></div>
+      <div class="stat-card"><div class="label">时效性</div><div class="value">100%</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📈 质量趋势（最近7天）</div>
+      <div class="chart-placeholder">质量趋势图 — 接入后端数据后实时渲染</div>
+    </div>
+  </div>
+
+  <!-- ═══════ P5: 资产估值 ═══════ -->
+  <div class="page" id="page-valuation">
+    <div class="card-grid">
+      <div class="stat-card primary"><div class="label">已估值资产</div><div class="value">—</div><div class="sub">通过 DRAP 引擎</div></div>
+      <div class="stat-card success"><div class="label">总估值金额</div><div class="value">—</div><div class="sub">成本法+收益法+市场法</div></div>
+      <div class="stat-card warning"><div class="label">待入表资产</div><div class="value">—</div><div class="sub">已完成估值</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">💰 估值方法选择</div>
+      <div class="form-row">
+        <div class="form-group"><label>估值方法</label><select id="v-method"><option value="bsc">BSC 战略对齐估值</option><option value="anp">ANP 多标准网络分析</option><option value="industry">行业特化估值</option></select></div>
+        <div class="form-group"><label>行业（可选）</label><select id="v-industry"><option value="">自动</option><option>金融</option><option>制造</option><option>互联网</option></select></div>
+        <button class="btn btn-primary" onclick="runValuation()">执行估值 (→DRAP)</button>
+      </div>
+      <div id="valuation-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ═══════ P6: 合规中心 ═══════ -->
+  <div class="page" id="page-compliance">
+    <div class="card">
+      <div class="card-title">⚖️ 数据处理全生命周期合规检查（10阶段）</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px" id="compliance-stages">
+      </div>
+    </div>
+    <div class="card" id="compliance-result" style="display:none">
+      <div class="card-title">📋 检查结果</div>
+      <div id="compliance-detail"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer" id="footer">
+  <span>🟢 系统运行中</span>
+  <span>Agent: <span id="f-agents">—</span></span>
+  <span>API: <span id="f-api">—</span></span>
+  <span>DRAP: <span id="f-drap">—</span></span>
+  <span>法规库: <span id="f-reg">—</span></span>
+</div>
+
+<script>
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+
+// ══════════════════════════════════════════════════
+// 导航切换
+// ══════════════════════════════════════════════════
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.page));
+});
+
+function switchTab(page) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+  document.getElementById(`page-${page}`).classList.add('active');
+  if (page === 'catalog') loadCatalog('bronze');
+  if (page === 'dashboard') loadDashboard();
+  if (page === 'compliance') loadComplianceStages();
+}
+
+// ══════════════════════════════════════════════════
+// API 基础
+// ══════════════════════════════════════════════════
+const API = window.location.origin;
+
+async function apiGet(path) {
+  try { const r = await fetch(API + path); return await r.json(); }
+  catch(e) { return {error: e.message}; }
+}
+
+async function apiPost(path, body) {
+  try {
+    const r = await fetch(API + path, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    return await r.json();
+  } catch(e) { return {error: e.message, success: false}; }
+}
+
+// ══════════════════════════════════════════════════
+// Dashboard
+// ══════════════════════════════════════════════════
+async function loadDashboard() {
+  // Storage stats
+  try {
+    const s = await apiGet('/api/storage/status');
+    document.getElementById('d-sources').textContent = s.bronze?.sources || '0';
+    document.getElementById('d-tables').textContent = s.silver?.domains || '0';
+    document.getElementById('d-datasets').textContent = (s.gold?.datasets || []).length;
+  } catch(e) {}
+
+  // DRAP status
+  try {
+    const d = await apiGet('/api/drap/status');
+    const dot = document.getElementById('drap-dot');
+    const txt = document.getElementById('drap-status');
+    const f = document.getElementById('f-drap');
+    if (d.connected) {
+      dot.className = 'status-dot online'; txt.textContent = '已连接 (Port 8000)'; f.textContent = '✅';
+    } else {
+      dot.className = 'status-dot offline'; txt.textContent = '未连接'; f.textContent = '❌';
+    }
+  } catch(e) {}
+
+  // Agents
+  try {
+    const a = await apiGet('/api/agents');
+    document.getElementById('f-agents').textContent = (a.agents || []).length;
+    let html = '';
+    (a.agents || []).forEach(ag => {
+      html += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f0f0f0">
+        <span><span class="status-dot online"></span>${ag.name}</span>
+        <small style="color:var(--text-secondary)">${ag.category}</small></div>`;
+    });
+    document.getElementById('agent-status-list').innerHTML = html;
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════
+// Pipeline
+// ══════════════════════════════════════════════════
+function log(msg, cls='info') {
+  const el = document.getElementById('pipeline-log');
+  const now = new Date().toLocaleTimeString();
+  el.innerHTML += `<div><span class="time">[${now}]</span> <span class="${cls}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function runPipeline(action) {
+  const source = document.getElementById('p-source').value;
+  const type = document.getElementById('p-type').value;
+  const name = document.getElementById('p-name').value;
+
+  if (!source) { alert('请输入数据源路径'); return; }
+
+  log(`开始数据接入: ${source}`, 'info');
+
+  // Step 1: Plan
+  updateStep(1);
+  log('① 分析意图，生成执行计划…');
+
+  // Step 2: Ingest
+  updateStep(2);
+  try {
+    const resp = await apiPost('/api/ingest', {
+      source_path: source, source_type: type, source_name: name
+    });
+    if (resp.success) {
+      log(`✅ 数据接入成功: ${resp.data?.source_name}, ${resp.data?.profile?.rows} 行`, 'success');
+      markStepDone(2, true);
+    } else {
+      log(`❌ 接入失败: ${resp.error || resp.message}`, 'error');
+      return;
+    }
+  } catch(e) { log(`❌ 网络错误: ${e.message}`, 'error'); return; }
+
+  // Step 3: Clean (if full pipeline)
+  if (action === 'full') {
+    updateStep(3);
+    log('③ 执行数据清洗…');
+    try {
+      const cResp = await apiPost('/api/clean', {source_name: name || source.split('\\').pop().split('.')[0]});
+      if (cResp.success) {
+        log(`✅ 清洗完成: ${cResp.data?.report?.rows_before}→${cResp.data?.report?.rows_after} 行`, 'success');
+        markStepDone(3, true);
+        // Show preview
+        if (cResp.data?.cleaned_data) showPreview(cResp.data.columns, cResp.data.cleaned_data);
+      } else {
+        log(`⚠️ 清洗失败: ${cResp.error}`, 'error');
+      }
+    } catch(e) { log(`❌ 清洗错误: ${e.message}`, 'error'); }
+  }
+}
+
+function updateStep(n) {
+  document.querySelectorAll('#pipeline-steps .step').forEach(s => {
+    const sn = parseInt(s.dataset.step);
+    if (sn < n) s.className = 'step done';
+    else if (sn === n) s.className = 'step active';
+    else s.className = 'step';
+  });
+}
+
+function markStepDone(n, ok) {
+  document.querySelectorAll('#pipeline-steps .step').forEach(s => {
+    if (parseInt(s.dataset.step) === n) s.className = ok ? 'step done' : 'step active';
+  });
+}
+
+function showPreview(cols, rows) {
+  document.getElementById('preview-card').style.display = 'block';
+  let html = '<table><thead><tr>';
+  (cols||[]).forEach(c => html += `<th>${c}</th>`);
+  html += '</tr></thead><tbody>';
+  (rows||[]).slice(0, 10).forEach(r => {
+    html += '<tr>';
+    r.forEach(v => html += `<td>${esc(v) || '<i>NULL</i>'}</td>`);
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('preview-table').innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════
+// Catalog
+// ══════════════════════════════════════════════════
+async function loadCatalog(layer) {
+  document.querySelectorAll('.layer-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`tab-${layer}`).classList.add('active');
+
+  try {
+    const s = await apiGet('/api/storage/status');
+    let data, title;
+    if (layer === 'bronze') {
+      data = s.bronze?.sources_detail || {};
+      title = 'Bronze — 原始数据落地层（不可变、append-only）';
+    } else if (layer === 'silver') {
+      data = s.silver?.detail || {};
+      title = 'Silver — 清洗标准化层';
+    } else {
+      data = {};
+      (s.gold?.datasets || []).forEach(d => data[d] = {partitions: 1});
+      title = 'Gold — 聚合分析就绪层';
+    }
+
+    document.getElementById('catalog-title').textContent = title;
+    let html = '';
+    Object.entries(data).forEach(([name, info]) => {
+      html += `<tr>
+        <td><strong>${esc(name)}</strong></td>
+        <td>${info.latest || '—'}</td>
+        <td>${info.partitions || 1}</td>
+        <td>${formatBytes(info.size_bytes || 0)}</td>
+        <td><button class="btn btn-sm" onclick="alert('数据预览功能开发中')">预览</button></td>
+      </tr>`;
+    });
+    document.getElementById('catalog-body').innerHTML = html || '<tr><td colspan="5" style="text-align:center">暂无数据</td></tr>';
+  } catch(e) {}
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+// ══════════════════════════════════════════════════
+// Valuation
+// ══════════════════════════════════════════════════
+async function runValuation() {
+  const method = document.getElementById('v-method').value;
+  const industry = document.getElementById('v-industry').value;
+  const el = document.getElementById('valuation-result');
+  el.innerHTML = '<div class="tag tag-blue">正在调用 DRAP 估值引擎…</div>';
+
+  try {
+    const resp = await apiPost('/api/asset/valuate', {
+      action: 'valuate', source_name: 'test_asset',
+      valuation_method: method, industry: industry,
+      asset_data: {rows: 100, columns: 10}
+    });
+    if (resp.success) {
+      el.innerHTML = `<div class="tag tag-green">✅ 估值完成</div>
+        <pre style="margin-top:8px;background:#f6ffed;padding:12px;border-radius:6px;font-size:12px;max-height:200px;overflow-y:auto">${JSON.stringify(resp.data, null, 2)}</pre>`;
+    } else {
+      el.innerHTML = `<div class="tag tag-red">⚠️ DRAP 未连接: ${resp.error || resp.message}</div>
+        <small style="color:var(--text-secondary)">请启动 DRAP 服务 (Port 8000)</small>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="tag tag-red">❌ 连接失败: ${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+// Compliance
+// ══════════════════════════════════════════════════
+const COMPLIANCE_STAGES = [
+  '数据采集','数据爬取','数据规范','数据清洗','数据存储',
+  '数据确权','数据定价','数据入账','数据交易','数据跨境'
+];
+
+function loadComplianceStages() {
+  let html = '';
+  COMPLIANCE_STAGES.forEach((s, i) => {
+    html += `<div style="padding:12px;background:#fff;border:1px solid var(--border);border-radius:6px;cursor:pointer"
+      onclick="checkCompliance('${s}')">
+      <strong>${i+1}. ${s}</strong><br>
+      <small style="color:var(--text-secondary)">点击检查 → 法规智能体</small>
+    </div>`;
+  });
+  document.getElementById('compliance-stages').innerHTML = html;
+}
+
+async function checkCompliance(stage) {
+  const el = document.getElementById('compliance-result');
+  const detail = document.getElementById('compliance-detail');
+  el.style.display = 'block';
+  detail.innerHTML = '<div class="tag tag-blue">正在查询法规智能体…</div>';
+
+  try {
+    const resp = await apiPost('/api/compliance/check', {stage: stage, operation: '', data_desc: ''});
+    detail.innerHTML = `<div class="tag tag-green">✅ 检查完成</div>
+      <pre style="margin-top:8px;background:#f6ffed;padding:12px;border-radius:6px;font-size:12px">${JSON.stringify(resp, null, 2)}</pre>`;
+  } catch(e) {
+    detail.innerHTML = `<div class="tag tag-red">❌ 检查失败: ${e.message}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+// Init
+// ══════════════════════════════════════════════════
+loadDashboard();
+loadComplianceStages();
+</script>
+</body>
+</html>

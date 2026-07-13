@@ -1,0 +1,42 @@
+# 数据处理智能体 — 默认配置文件
+# 环境变量覆盖规则: DPA_{SECTION}__{KEY} (双下划线分隔嵌套)
+# 示例: DPA_DEBUG=true  DPA_LLM__MODEL=deepseek-v4-pro
+
+# ── 应用 ──
+app_name: DataProcessingAgent
+app_version: "0.1.0"
+debug: false
+
+# ── DCMM 目标等级 (1=初始级 2=受管理级 3=稳健级 4=量化管理级 5=优化级) ──
+dcmm_target_level: 2
+
+# ── API 服务 ──
+api_host: "127.0.0.1"
+api_port: 8100
+
+# ── 日志 ──
+log_level: INFO
+
+# ── LLM 配置 ──
+llm:
+  provider: deepseek
+  model: deepseek-v4-pro
+  temperature: 0.1
+  max_tokens: 4096
+
+# ── Medallion 分层存储 ──
+medallion:
+  base_path: ./data
+
+# ── DRAP 估值引擎 ──
+drap:
+  base_url: "http://localhost:8000"
+  timeout: 30
+
+# ── 数据质量阈值 ──
+quality:
+  completeness_threshold: 0.95
+  accuracy_threshold: 0.90
+  consistency_threshold: 0.95
+  timeliness_hours: 24
+  uniqueness_threshold: 0.98
