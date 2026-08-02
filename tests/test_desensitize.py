@@ -167,3 +167,65 @@ class TestDesensitize:
                 desensitize=True, desensitize_strategy=strategy,
             )
             assert result.success, f"Strategy {strategy} failed: {result.error}"
+
+    @pytest.mark.asyncio
+    async def test_null_strategy(self, pii_data):
+        """L4级: null策略应置空密码/密钥类值"""
+        name, bronze = pii_data
+        result = await CleanAgent().run(
+            source_name=name, bronze=bronze,
+            desensitize=True, desensitize_strategy="null",
+        )
+        assert result.success, result.error
+        data = result.data["cleaned_data"]
+        # 所有PII列被清空为 ""
+        for row in data:
+            for i in range(1, 7):  # name/phone/email/id_card/bank_card/address
+                assert row[i] == "", f"null 策略未置空列 {i}: {row[i]}"
+
+    @pytest.mark.asyncio
+    async def test_null_normalizes_empty(self, bronze):
+        """null 策略归一化 None/空串/空白为 ''"""
+        bronze.ingest_records(
+            "pii_null", ["id", "phone", "name"],
+            [[1, None, "张三"], [2, "", "李四"], [3, "   ", "王五"]],
+        )
+        result = await CleanAgent().run(
+            source_name="pii_null", bronze=bronze,
+            desensitize=True, desensitize_strategy="null",
+        )
+        assert result.success, result.error
+        data = result.data["cleaned_data"]
+        for row in data:
+            assert row[1] == "", f"None/空串/空白应统一置空: {row}"
+
+    @pytest.mark.asyncio
+    async def test_hash_salt_reproducible(self, monkeypatch):
+        """加盐哈希: 相同盐下同一值哈希一致; 不同盐结果不同; 无盐时进程内随机一次(同值同哈希)"""
+        import os
+        agent = CleanAgent()
+        # 设盐 → 可复现
+        monkeypatch.setenv("DESENSITIZE_SALT", "test_salt_001")
+        v1 = agent._apply_mask("13800001111", "手机号", "hash", {})
+        v2 = agent._apply_mask("13800001111", "手机号", "hash", {})
+        assert v1 == v2, "同盐同值哈希应一致"
+        assert len(v1) == 16
+        # 不同盐 → 不同哈希
+        monkeypatch.setenv("DESENSITIZE_SALT", "other_salt_002")
+        agent._salt_cache = None  # 重置缓存读新盐
+        v3 = agent._apply_mask("13800001111", "手机号", "hash", {})
+        assert v1 != v3, "不同盐哈希应不同"
+        # 无盐 → 进程内随机盐一次生成, 同值同哈希(可关联统计)
+        monkeypatch.delenv("DESENSITIZE_SALT", raising=False)
+        agent._salt_cache = None
+        v4 = agent._apply_mask("13800001111", "手机号", "hash", {})
+        v5 = agent._apply_mask("13800001111", "手机号", "hash", {})
+        assert v4 == v5, "无盐时进程内盐缓存, 同值应同哈希(去重/关联需要)"
+
+    @pytest.mark.asyncio
+    async def test_hash_not_plaintext(self):
+        """hash 结果不含原文(不可逆, 防彩虹表)"""
+        agent = CleanAgent()
+        out = agent._apply_mask("13800001111", "手机号", "hash", {})
+        assert "13800001111" not in out
+        assert out != "13800001111"

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -86,6 +87,9 @@ class CleanAgent(AgentBase):
         if do_quality_score:
             quality_scores = self._compute_quality_scores(columns, cleaned_rows, profile)
 
+        # 5.5 🆕 三级修复分类
+        repair_tiers = self.classify_repair_tier(profile, columns)
+
         # 6. 🆕 可观测性快照
         observability = self._observability_snapshot(
             source_name, n_before, len(cleaned_rows), columns, cleaned_rows
@@ -109,6 +113,7 @@ class CleanAgent(AgentBase):
             },
             "operations": cleaning_log + semantic_log + mask_log,
             "quality_scores": quality_scores,       # 🆕
+            "repair_tiers": repair_tiers,           # 🆕 三级修复分类
             "observability": observability,         # 🆕
             "cleaned_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -259,10 +264,11 @@ class CleanAgent(AgentBase):
         PII检测 + 脱敏
 
         策略:
-          - mask: 部分遮盖 (138****1111 / 张**)
-          - full:  完全遮盖 (**** / ***)
-          - hash:  SHA256哈希 (可逆查询)
-          - token: 令牌替换 (PII_001, PII_002...)
+          - mask:   部分遮盖 (138****1111 / 张**)
+          - full:   完全遮盖 (**** / ***)
+          - hash:   SHA256加盐哈希 (不可逆查询)  — 盐必须加，禁止无盐哈希(彩虹表)
+          - token:  令牌替换 (PII_001, PII_002...)
+          - null:   置空 (L4级: 密码/密钥/验证码直接清空, 不做掩码)
         """
         log = []
         total_masked = 0
@@ -284,7 +290,16 @@ class CleanAgent(AgentBase):
         for i, col, pii_type in detected_pii:
             mask_count = 0
             for row in rows:
-                if i < len(row) and row[i] is not None and str(row[i]).strip():
+                if i < len(row):
+                    if strategy == "null":
+                        # L4级置空: None/空串/空白统一归一化为 "" (空值也归)
+                        if row[i] is None or not str(row[i]).strip():
+                            if row[i] != "":
+                                row[i] = ""
+                                mask_count += 1
+                            continue
+                    if row[i] is None or not str(row[i]).strip():
+                        continue
                     val = str(row[i])
                     masked = self._apply_mask(val, pii_type, strategy, token_counter)
                     if masked != val:
@@ -309,6 +324,17 @@ class CleanAgent(AgentBase):
 
         return rows, log
 
+    def _desensitize_salt(self) -> str:
+        """进程级盐: 环境变量优先, 缺省随机一次并缓存 — 保证同值同哈希可关联统计."""
+        salt = getattr(self, "_salt_cache", None)
+        if salt is None:
+            salt = os.environ.get("DESENSITIZE_SALT", "")
+            if not salt:
+                salt = hashlib.sha256(os.urandom(16)).hexdigest()
+                logger.warning("DESENSITIZE_SALT 未配置, 使用进程内随机盐 — 跨进程不可复现, 请设置环境变量")
+            self._salt_cache = salt
+        return salt
+
     def _apply_mask(
         self, value: str, pii_type: str, strategy: str, token_counter: dict
     ) -> str:
@@ -319,8 +345,12 @@ class CleanAgent(AgentBase):
         if strategy == "full":
             return "***"
 
+        if strategy == "null":
+            return ""  # L4级置空: 密码/密钥/验证码直接清空, 不做掩码
+
         if strategy == "hash":
-            return hashlib.sha256(value.encode()).hexdigest()[:12]
+            # 加盐哈希: 盐从环境变量读, 缺省进程内随机盐(一次生成, 保证同值同哈希可关联)
+            return hashlib.sha256((self._desensitize_salt() + value).encode()).hexdigest()[:16]
 
         if strategy == "token":
             key = f"{pii_type}:{value}"
@@ -493,6 +523,45 @@ class CleanAgent(AgentBase):
         if score >= 50:
             return "受管理级(2)"
         return "初始级(1)"
+
+    # ═══════════════════════════════════════════════════════════════
+    # 三级自动修复分类 (对标「数据治理六大能力闭环」)
+    # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def classify_repair_tier(profile: dict, columns: list[str]) -> dict:
+        """
+        Tier 1 自动修复: 空值填充/格式标准化 — 系统自动处理
+        Tier 2 规则修复: 业务规则批量修正 — 规则引擎处理
+        Tier 3 人工确认: 复杂异常/语义问题 — 需人工审核
+        """
+        tiers = {"auto": [], "rule": [], "manual": []}
+
+        for col, null_pct in profile.get("null_pcts", {}).items():
+            if null_pct > 0:
+                if null_pct < 10:
+                    tiers["auto"].append({"column": col, "issue": "null_fill", "pct": null_pct,
+                                          "action": f"fill_{'mode' if col in ('status','category') else 'median'}"})
+                elif null_pct < 30:
+                    tiers["rule"].append({"column": col, "issue": "null_fill", "pct": null_pct,
+                                          "action": "fill_by_business_rule"})
+                else:
+                    tiers["manual"].append({"column": col, "issue": "null_fill", "pct": null_pct,
+                                            "action": "manual_review: high null rate"})
+
+        for col, count in profile.get("outlier_counts", {}).items():
+            if count > 0:
+                tiers["rule"].append({"column": col, "issue": "outliers", "count": count,
+                                     "action": "iqr_clip_or_flag"})
+
+        for col in columns:
+            if any(k in str(col).lower() for k in ("phone", "手机", "email", "邮箱", "id_card", "身份证")):
+                bad = profile.get("format_violations", {}).get(col, 0)
+                if bad > 0:
+                    tiers["manual"].append({"column": col, "issue": "format_violation",
+                                            "count": bad, "action": "manual_review: data integrity"})
+
+        return tiers
 
     # ═══════════════════════════════════════════════════════════════
     # 🆕 数据可观测性快照

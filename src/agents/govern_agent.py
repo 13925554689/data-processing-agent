@@ -161,8 +161,11 @@ class GovernAgent(AgentBase):
         total = len(rows)
         scores = {
             "completeness": self._score_completeness(cols, rows),
+            "accuracy": self._score_accuracy(cols, rows),
             "uniqueness": self._score_uniqueness(rows),
+            "consistency": self._score_consistency(cols, rows),
             "freshness": self._score_freshness(cols, rows),
+            "compliance": self._score_compliance(cols, rows),
             "documentation": self._score_docs(cols),
         }
         overall = sum(scores.values()) / len(scores)
@@ -199,6 +202,54 @@ class GovernAgent(AgentBase):
                     except Exception: pass
                 return recent / min(len(rows), 50) * 100 if rows else 100
         return 100  # 无日期列，默认满分
+
+    def _score_accuracy(self, cols, rows) -> float:
+        """准确性: 检查常用字段格式"""
+        score = 100
+        for i, col in enumerate(cols):
+            c = col.lower()
+            vals = [str(r[i]) for r in rows if i < len(r) and r[i] is not None]
+            total = len(vals)
+            if not total: continue
+            if any(k in c for k in ("phone", "手机", "联系电话")):
+                ok = sum(1 for v in vals if re.match(r'^1\d{10}$', v))
+                score = min(score, ok / total * 100)
+            elif any(k in c for k in ("email", "邮箱", "邮件")):
+                ok = sum(1 for v in vals if re.match(r'^[\w.-]+@[\w.-]+\.\w+$', v))
+                score = min(score, ok / total * 100)
+            elif any(k in c for k in ("id_card", "身份证")):
+                ok = sum(1 for v in vals if re.match(r'^\d{17}[\dXx]$', v))
+                score = min(score, ok / total * 100)
+        return score
+
+    def _score_consistency(self, cols, rows) -> float:
+        """一致性: 同列类型统一率"""
+        if not cols: return 0
+        ok = 0
+        for i in range(len(cols)):
+            types = set()
+            for r in rows[:100]:
+                if i < len(r) and r[i] is not None:
+                    types.add(type(r[i]).__name__)
+            if len(types) <= 1:
+                ok += 1
+        return ok / len(cols) * 100
+
+    def _score_compliance(self, cols, rows) -> float:
+        """合规性: 敏感字段格式合规率"""
+        ok = total = 0
+        for i, col in enumerate(cols):
+            c = col.lower()
+            vals = [str(r[i]) for r in rows if i < len(r) and r[i] is not None]
+            if not vals: continue
+            total += len(vals)
+            if any(k in c for k in ("phone", "手机")):
+                ok += sum(1 for v in vals if re.match(r'^1\d{10}$', v))
+            elif any(k in c for k in ("email", "邮箱")):
+                ok += sum(1 for v in vals if re.match(r'^[\w.-]+@[\w.-]+\.\w+$', v))
+            else:
+                total -= len(vals)  # no compliance check needed
+        return ok / total * 100 if total else 100
 
     def _score_docs(self, cols) -> float:
         mapped = sum(1 for c in cols if c in self.STANDARD_NAMES)
